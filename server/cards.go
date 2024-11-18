@@ -7,10 +7,10 @@ import (
 
 var CARD_MAP map[string]Troop = map[string]Troop{
   "tower": {
-    MaxHp: 10000,
+    MaxHP: 10000,
     HP: 10000,
     AttackSpeed: 500, MovementSpeed: 100, 
-    attackFunc: BasicAttack, movementFunc: BuildingDetection,
+    attackFunc: BasicMeleeAttack, movementFunc: BuildingDetection,
     Vision: 5,
     Radius: 5,
     Damage: 10,
@@ -19,33 +19,81 @@ var CARD_MAP map[string]Troop = map[string]Troop{
   "water": {},
   "wizard": {
     AttackSpeed: 300, MovementSpeed: 500, DeploySpeed: 1000, 
-    attackFunc: BasicAttack, movementFunc: BasicMovement,
+    attackFunc: BasicSplashAttack, movementFunc: BasicMovement,
     Vision: 5,
     Radius: 1,
-    MaxHp: 50,
+    Splash: 2,
+    MaxHP: 50,
     HP: 50,
     Damage: 10,
   }, 
   "hog_rider": {
     AttackSpeed: 300, MovementSpeed: 100, DeploySpeed: 1000, 
-    attackFunc: BasicAttack, movementFunc: BasicMovement,
+    attackFunc: BasicMeleeAttack, movementFunc: BasicMovement,
     Radius: 1,
   }, 
 }
 
-func BasicAttack(t *Troop) {
+func Attack(t *Troop, damage func (t *Troop, target Troop) bool) {
   target := games[t.gameId].Troops[t.Lock] 
-  target.HP -= t.Damage
-  games[t.gameId].Troops[t.Lock] = target
-  target.Broadcast()
-
-  if target.HP <= 0 {
-    target.Kill(servers[t.gameId])
-    t.State = "moving" 
-    games[t.gameId].moveLoop[t.ID] = t.MovementSpeed
-    t.movementFunc(t)
+  if (target.ID == "") {
+    t.InitiateMovement()
+    games[t.gameId].Positions[t.Tile] = t.ID 
+    return
   }
+
+  isKilled := damage(t, target) 
+
+  if (isKilled) {
+    t.InitiateMovement()
+  }
+
   games[t.gameId].Positions[t.Tile] = t.ID 
+}
+
+func BasicMeleeAttack(t *Troop) {
+  Attack(t, DirectAttack)
+}
+
+func BasicSplashAttack(t *Troop) {
+  Attack(t, SplashAttack)
+}
+
+func DirectAttack(t *Troop, target Troop) bool {
+  target.HP -= t.Damage
+  games[t.gameId].Troops[target.ID] = target
+  if target.HP <= 0 {
+    target.Kill(servers[target.gameId])
+    return true
+  } else {
+    target.Broadcast()
+  }
+  return false
+}
+
+func SplashAttack(t *Troop, target Troop) bool {
+  isLockKilled := false
+  for y := t.Tile.Y - t.Splash; y <= t.Tile.Y + t.Splash; y++ {
+    for x := t.Tile.X - t.Splash; x <= t.Tile.X + t.Splash; x++ {
+      tile := Tile{X: x, Y: y}
+      if troop, ok := games[t.gameId].Positions[tile]; ok {
+	enemy := games[t.gameId].Troops[troop]
+	if enemy.Team != t.Team && enemy.Team != "" {
+	  isKilled := DirectAttack(t, enemy)
+	  if (t.Lock == troop) {
+	    isLockKilled = isKilled
+	  }
+	} 
+      }
+    } 
+  } 
+  return isLockKilled
+}
+
+func (t *Troop) InitiateMovement() {
+  t.State = "moving" 
+  games[t.gameId].moveLoop[t.ID] = t.MovementSpeed
+  t.movementFunc(t)
 }
 
 func (t *Troop) ShortestInRadius(center Tile) (Tile, float64) {
@@ -102,7 +150,7 @@ func (t *Troop) ClosestTroop() Tile {
       step := Tile{X: x, Y: y}
       if troop, ok := games[t.gameId].Positions[step]; ok {
 	target := games[t.gameId].Troops[troop]
-	if target.Player != t.Player && target.Player != "" {
+	if target.Team != t.Team && target.Team != "" {
 	  d := utils.Euclidean(t.Tile.X, t.Tile.Y, target.NextTile.X, target.NextTile.Y)
 
 	  if (d < shortest) {
@@ -134,7 +182,7 @@ func (t *Troop) Pathfinding() Tile {
 func (t *Troop) NearestTower() {
   tower_key := "tower_down"
 
-  if (t.Player == games[t.gameId].Players[0]) {
+  if (t.Team == games[t.gameId].Players[0].Team) {
     tower_key = "tower_up"
   }
 
@@ -160,14 +208,16 @@ func BasicMovement(t *Troop) {
 
 
 func (t *Troop) InRadius(target Tile) bool {
-  for y := t.Tile.Y - t.Radius; y <= t.Tile.Y + t.Radius; y++ {
-    for x := t.Tile.X - t.Radius; x <= t.Tile.X + t.Radius; x++ {
-      tile := Tile{X: x, Y: y}
-      if target == tile {
-	return true
-      }
-    } 
-  } 
+  xMin := t.Tile.X - t.Radius
+  xMax := t.Tile.X + t.Radius
+  yMin := t.Tile.Y - t.Radius
+  yMax := t.Tile.Y + t.Radius
+
+  if (target.X >= xMin && target.X <= xMax) {
+    if (target.Y >= yMin && target.Y <= yMax) {
+      return true
+    }
+  }
 
   return false 
 }

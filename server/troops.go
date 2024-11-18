@@ -20,14 +20,15 @@ type Troop struct {
   NextTile Tile
   Radius int
   Vision int
-  MaxHp int
+  MaxHP int
   HP int
   Damage int
+  Splash int
   State string
   Lock string
   attackFunc func (t *Troop)
   movementFunc func (t *Troop)
-  Player string
+  Team string
   Type string
 }
 
@@ -44,6 +45,7 @@ func (t *Troop) Broadcast() {
 
 func (t *Troop) Kill(s *Server) {
   var action Action = Action{Name: "death", Body: fmt.Sprintf(`{"troop": "%s"}`, t.ID)}
+  fmt.Println(action)
   response, _ := json.Marshal(action)
   delete(games[s.id].Positions, t.Tile)
   delete(games[s.id].attackLoop, t.ID)

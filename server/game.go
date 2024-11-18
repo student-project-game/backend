@@ -3,13 +3,16 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
 	"golang.org/x/net/websocket"
 )
 
+
+type Gamemode struct {
+  PlayerCount int `json:"playerCount"`
+}
 
 type Game struct {
   ID string
@@ -18,7 +21,8 @@ type Game struct {
   attackLoop map[string]int
   moveLoop map[string]int
   started bool
-  Players []string
+  Players []Player
+  Gamemode Gamemode
   l sync.Mutex
 }
 
@@ -34,18 +38,18 @@ func MakeGame(id string) *Game {
     moveLoop: make(map[string]int),
     Troops: make(map[string]Troop),
     Positions: make(map[Tile]string),
-    Players: make([]string, 0),
+    Players: make([]Player, 0),
     started: false,
   }
   return &game
 }
 
-func (g *Game) GenerateTroop(card string, id string, tile Tile, player string) Troop {
+func (g *Game) GenerateTroop(card string, id string, tile Tile, team string) Troop {
   var troop Troop = CARD_MAP[card]
   troop.ID = id
   troop.Tile = tile 
   troop.NextTile = troop.Tile 
-  troop.Player = player 
+  troop.Team = team 
   troop.gameId = g.ID
   g.Positions[troop.Tile] = troop.ID
 
@@ -58,13 +62,13 @@ func (g *Game) GenerateTroop(card string, id string, tile Tile, player string) T
 }
 
 func (g *Game) StaticTroops(s *Server) {
-  g.Troops["tower_down_left"] = g.GenerateTroop("tower", "tower_down_left", Tile{X: 4, Y: 5}, g.Players[0])
-  g.Troops["tower_down_right"] = g.GenerateTroop("tower", "tower_down_right", Tile{X: 13, Y: 5}, g.Players[0])
-  g.Troops["tower_main_down"] = g.GenerateTroop("tower", "tower_main_down", Tile{X: 8, Y: 2}, g.Players[0])
+  g.Troops["tower_down_left"] = g.GenerateTroop("tower", "tower_down_left", Tile{X: 4, Y: 5}, g.Players[0].Team)
+  g.Troops["tower_down_right"] = g.GenerateTroop("tower", "tower_down_right", Tile{X: 13, Y: 5}, g.Players[0].Team)
+  g.Troops["tower_main_down"] = g.GenerateTroop("tower", "tower_main_down", Tile{X: 8, Y: 2}, g.Players[0].Team)
 
-  g.Troops["tower_up_left"] = g.GenerateTroop("tower", "tower_up_left", Tile{X: 4, Y: 26}, g.Players[1])
-  g.Troops["tower_up_right"] = g.GenerateTroop("tower", "tower_up_right", Tile{X: 13, Y: 26}, g.Players[1])
-  g.Troops["tower_main_up"] = g.GenerateTroop("tower", "tower_main_up", Tile{X: 8, Y: 29}, g.Players[1])
+  g.Troops["tower_up_left"] = g.GenerateTroop("tower", "tower_up_left", Tile{X: 4, Y: 26}, g.Players[1].Team)
+  g.Troops["tower_up_right"] = g.GenerateTroop("tower", "tower_up_right", Tile{X: 13, Y: 26}, g.Players[1].Team)
+  g.Troops["tower_main_up"] = g.GenerateTroop("tower", "tower_main_up", Tile{X: 8, Y: 29}, g.Players[1].Team)
 
   for i := 0; i < 18; i++ {
     if i != 4 && i != 13 {
@@ -85,7 +89,7 @@ func (g *Game) Place(body string, s *Server, ws *websocket.Conn) {
   troop.ID = fmt.Sprintf("%d", time.Now().UnixMilli())
   troop.Tile = placement.Tile
   troop.NextTile = placement.Tile
-  troop.Player = ws.Config().Protocol[0]
+  troop.Team = ws.Config().Protocol[0]
   troop.gameId = s.id
   troop.State = "moving"
 
@@ -100,7 +104,6 @@ func (g *Game) Place(body string, s *Server, ws *websocket.Conn) {
   response, _ := json.Marshal(action)
 
   s.Broadcast(response)
-  log.Println("placed")
 }
 
 func (s *Server) StartMatch() {

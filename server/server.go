@@ -26,10 +26,23 @@ func MatchActions(a Action, s *Server, connections ...*websocket.Conn) {
 }
 
 func JoinMatch(body string, s *Server, ws *websocket.Conn) {
+  var gamemode Gamemode;
+  json.Unmarshal([]byte(body), &gamemode)
+
+  log.Println(gamemode, body)
+
+  playerID := ws.Config().Protocol[0]
   for _, server := range servers {
-    if len(server.conns) == 1 {
-      games[server.id].Players = append(games[server.id].Players, ws.Config().Protocol[0])
-      var action Action = Action{Name: "game_id", Body: fmt.Sprintf(`{"id": "%s", "direction": "down"}`, server.id)}
+    maxPlayers := games[server.id].Gamemode.PlayerCount
+    
+    if maxPlayers == gamemode.PlayerCount && len(server.conns) >= 0 && len(server.conns) < maxPlayers {
+      direction := "up"
+      if len(server.conns) % 2 == 1 {
+	direction = "down"
+      }
+      var player Player = Player{ID: playerID, Team: direction}
+      games[server.id].Players = append(games[server.id].Players, player)
+      var action Action = Action{Name: "game_id", Body: fmt.Sprintf(`{"id": "%s", "direction": "%s"}`, server.id, direction)}
       response, _ := json.Marshal(action) 
       ws.Write(response)
       return
@@ -38,7 +51,9 @@ func JoinMatch(body string, s *Server, ws *websocket.Conn) {
 
   serverId := fmt.Sprintf("%d", len(servers))
   games[serverId] = MakeGame(serverId)
-  games[serverId].Players = append(games[serverId].Players, ws.Config().Protocol[0])
+  games[serverId].Gamemode = gamemode
+  var player Player = Player{ID: playerID, Team: "up"}
+  games[serverId].Players = append(games[serverId].Players, player)
   var action Action = Action{Name: "game_id", Body: fmt.Sprintf(`{"id": "%s", "direction": "up"}`, serverId)}
   response, _ := json.Marshal(action) 
   ws.Write(response)
@@ -48,8 +63,8 @@ func Serve() {
   s := MakeServer(HomeActions, "home")
   http.HandleFunc("/home",
     func (w http.ResponseWriter, req *http.Request) {
-	s := websocket.Server{Handler: s.Handler}
-	s.ServeHTTP(w, req)
+      s := websocket.Server{Handler: s.Handler}
+      s.ServeHTTP(w, req)
     },
   );
 
@@ -64,7 +79,7 @@ func Serve() {
 	servers[id] = game
       }
 
-      if len(game.conns) == 2 {
+      if len(game.conns) == games[id].Gamemode.PlayerCount {
 	w.WriteHeader(423)
 	return
       }

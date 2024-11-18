@@ -40,7 +40,7 @@ func (s *Server) Handler(ws *websocket.Conn) {
   s.Log(fmt.Sprintf("Client %s %s", ws.Request().RemoteAddr, utils.Foreground("0;255;0", "CONNECTED")))
   s.conns[ws] = true
 
-  if (s.id != "home" && len(s.conns) == 2) {
+  if (s.id != "home" && len(s.conns) == games[s.id].Gamemode.PlayerCount) {
     s.StartMatch();
   } 
 
@@ -83,7 +83,7 @@ func (s *Server) Ping(conn *websocket.Conn) {
 	delete(s.conns, conn)
 	s.Log(fmt.Sprintf("Client %s %s", conn.Request().RemoteAddr, utils.Foreground("255;0;0", "DISCONNECTED")))
 
-	if (s.id != "home" && len(s.conns) == 0) {
+	if (s.id != "home" && len(s.conns) == games[s.id].Gamemode.PlayerCount) {
 	  delete(games, s.id)
 	  delete(servers, s.id)
 	}
