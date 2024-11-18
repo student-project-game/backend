@@ -9,11 +9,6 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-
-type Gamemode struct {
-  PlayerCount int `json:"playerCount"`
-}
-
 type Game struct {
   ID string
   Troops map[string]Troop
@@ -21,7 +16,7 @@ type Game struct {
   attackLoop map[string]int
   moveLoop map[string]int
   started bool
-  Players []Player
+  Players map[string]Player
   Gamemode Gamemode
   l sync.Mutex
 }
@@ -38,7 +33,7 @@ func MakeGame(id string) *Game {
     moveLoop: make(map[string]int),
     Troops: make(map[string]Troop),
     Positions: make(map[Tile]string),
-    Players: make([]Player, 0),
+    Players: make(map[string]Player),
     started: false,
   }
   return &game
@@ -62,13 +57,13 @@ func (g *Game) GenerateTroop(card string, id string, tile Tile, team string) Tro
 }
 
 func (g *Game) StaticTroops(s *Server) {
-  g.Troops["tower_down_left"] = g.GenerateTroop("tower", "tower_down_left", Tile{X: 4, Y: 5}, g.Players[0].Team)
-  g.Troops["tower_down_right"] = g.GenerateTroop("tower", "tower_down_right", Tile{X: 13, Y: 5}, g.Players[0].Team)
-  g.Troops["tower_main_down"] = g.GenerateTroop("tower", "tower_main_down", Tile{X: 8, Y: 2}, g.Players[0].Team)
+  g.Troops["tower_down_left"] = g.GenerateTroop("tower", "tower_down_left", Tile{X: 4, Y: 5}, "up")
+  g.Troops["tower_down_right"] = g.GenerateTroop("tower", "tower_down_right", Tile{X: 13, Y: 5}, "up")
+  g.Troops["tower_main_down"] = g.GenerateTroop("tower", "tower_main_down", Tile{X: 8, Y: 2}, "up")
 
-  g.Troops["tower_up_left"] = g.GenerateTroop("tower", "tower_up_left", Tile{X: 4, Y: 26}, g.Players[1].Team)
-  g.Troops["tower_up_right"] = g.GenerateTroop("tower", "tower_up_right", Tile{X: 13, Y: 26}, g.Players[1].Team)
-  g.Troops["tower_main_up"] = g.GenerateTroop("tower", "tower_main_up", Tile{X: 8, Y: 29}, g.Players[1].Team)
+  g.Troops["tower_up_left"] = g.GenerateTroop("tower", "tower_up_left", Tile{X: 4, Y: 26}, "down")
+  g.Troops["tower_up_right"] = g.GenerateTroop("tower", "tower_up_right", Tile{X: 13, Y: 26}, "down")
+  g.Troops["tower_main_up"] = g.GenerateTroop("tower", "tower_main_up", Tile{X: 8, Y: 29}, "down")
 
   for i := 0; i < 18; i++ {
     if i != 4 && i != 13 {
@@ -85,11 +80,16 @@ func (g *Game) Place(body string, s *Server, ws *websocket.Conn) {
   json.Unmarshal([]byte(body), &placement)
 
   var troop Troop = CARD_MAP[placement.Name]
+  player := games[s.id].Players[ws.Config().Protocol[0]]
+  
+  if (troop.Cost > player.Elixir) {
+    return
+  }
 
   troop.ID = fmt.Sprintf("%d", time.Now().UnixMilli())
   troop.Tile = placement.Tile
   troop.NextTile = placement.Tile
-  troop.Team = ws.Config().Protocol[0]
+  troop.Team = player.Team
   troop.gameId = s.id
   troop.State = "moving"
 
@@ -102,6 +102,8 @@ func (g *Game) Place(body string, s *Server, ws *websocket.Conn) {
   jsonTroop, _ := json.Marshal(troop)
   var action Action = Action{Name: "troop", Body: fmt.Sprintf(`{"troop": %s}`, jsonTroop)}
   response, _ := json.Marshal(action)
+
+  player.ElixirChange(s, troop.Cost*-1, ws)
 
   s.Broadcast(response)
 }
@@ -124,13 +126,12 @@ func (s *Server) StartMatch() {
 
 func (g *Game) Loop(s *Server) {
   for {
-    // start := time.Now().UnixMilli()
     if games[s.id] == nil {
       break
     }
       
     games[s.id].l.Lock()
-    for key, troop := range g.Troops {
+    for key, troop := range games[s.id].Troops {
       if troop.State == "attacking" {
 	games[s.id].attackLoop[key] -= 100	
 	if (games[s.id].attackLoop[key] == 0) {
@@ -149,7 +150,42 @@ func (g *Game) Loop(s *Server) {
       games[s.id].Troops[key] = troop
     }
     games[s.id].l.Unlock()
-    // s.Log(fmt.Sprintf("Loop completed in: %d miliseconds with %d troops", time.Now().UnixMilli() - start, len(games[s.id].Troops)))
+    end := games[s.id].Countdown(s)
+    if (end) {
+      break
+    }
     time.Sleep(time.Millisecond*100)
   }
 } 
+
+func (p *Player) ElixirChange(s *Server, change int, conn *websocket.Conn) {
+  p.Elixir += change
+  games[s.id].Players[p.ID] = *p	
+  var elixir Action = Action{Name: "elixir", Body: fmt.Sprintf(`{"elixir": %d}`, p.Elixir)}
+  broadcast, _ := json.Marshal(elixir)
+  s.Whisper(conn, broadcast)
+}
+
+func (g *Game) Countdown(s *Server) bool {
+  games[s.id].Gamemode.Timer -= 100
+
+  if (g.Gamemode.Timer % g.Gamemode.ElixirRate == 0) {
+    for conn, id := range s.conns {
+      player := games[s.id].Players[id]
+      if (player.Elixir < games[s.id].Gamemode.MaxElixir) {
+	player.ElixirChange(s, 1, conn)
+      }
+    }
+  }
+
+  if (g.Gamemode.Timer % 1000 == 0) {
+    var countdown Action = Action{Name: "countdown", Body: fmt.Sprintf(`{"timer": %d}`, g.Gamemode.Timer)}
+    broadcast, _ := json.Marshal(countdown)
+    s.Broadcast(broadcast)
+  }
+
+  if (g.Gamemode.Timer == 0) {
+    return true
+  }
+  return false
+}

@@ -12,6 +12,7 @@ type Tile struct {
 
 type Troop struct {
   ID string
+  Name string
   gameId string
   AttackSpeed int
   MovementSpeed int
@@ -22,8 +23,11 @@ type Troop struct {
   Vision int
   MaxHP int
   HP int
+  Cost int
   Damage int
   Splash int
+  Range int
+  Direction Tile 
   State string
   Lock string
   attackFunc func (t *Troop)

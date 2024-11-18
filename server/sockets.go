@@ -14,7 +14,7 @@ import (
 )
 
 type Server struct {
-  conns map[*websocket.Conn]bool
+  conns map[*websocket.Conn]string
   actions func (Action, *Server, ...*websocket.Conn)
   id string
 }
@@ -26,7 +26,7 @@ type Action struct {
 
 func MakeServer(actionsFunc func (Action, *Server, ...*websocket.Conn), id string) *Server {
   return &Server{
-    conns: make(map[*websocket.Conn]bool),
+    conns: make(map[*websocket.Conn]string),
     actions: actionsFunc,
     id: id,
   }
@@ -38,7 +38,7 @@ func (s *Server) Log(message string) {
 
 func (s *Server) Handler(ws *websocket.Conn) {
   s.Log(fmt.Sprintf("Client %s %s", ws.Request().RemoteAddr, utils.Foreground("0;255;0", "CONNECTED")))
-  s.conns[ws] = true
+  s.conns[ws] = ws.Config().Protocol[0]
 
   if (s.id != "home" && len(s.conns) == games[s.id].Gamemode.PlayerCount) {
     s.StartMatch();
@@ -74,7 +74,7 @@ func (s *Server) Read(ws *websocket.Conn) {
 
 func (s *Server) Ping(conn *websocket.Conn) {
   for {
-    active := s.conns[conn]
+    active := s.conns[conn] != ""
     if (active) {
       var m Action = Action{Name: "ping", Body: "ping"}
       body, _ := json.Marshal(m)
@@ -83,7 +83,7 @@ func (s *Server) Ping(conn *websocket.Conn) {
 	delete(s.conns, conn)
 	s.Log(fmt.Sprintf("Client %s %s", conn.Request().RemoteAddr, utils.Foreground("255;0;0", "DISCONNECTED")))
 
-	if (s.id != "home" && len(s.conns) == games[s.id].Gamemode.PlayerCount) {
+	if (s.id != "home" && len(s.conns) == 0) {
 	  delete(games, s.id)
 	  delete(servers, s.id)
 	}
@@ -99,6 +99,15 @@ func (s *Server) Broadcast(msg []byte) {
       if (active) {
 	conn.Write(msg) 
       }
-    }(conn, active)
+    }(conn, active != "")
   }
+}
+
+func (s *Server) Whisper(conn *websocket.Conn, msg []byte) {
+  active := s.conns[conn] != ""
+  go func(conn *websocket.Conn, active bool) {
+    if (active) {
+      conn.Write(msg) 
+    }
+  }(conn, active)
 }

@@ -26,10 +26,10 @@ func MatchActions(a Action, s *Server, connections ...*websocket.Conn) {
 }
 
 func JoinMatch(body string, s *Server, ws *websocket.Conn) {
-  var gamemode Gamemode;
-  json.Unmarshal([]byte(body), &gamemode)
+  var gamemodeID string;
+  json.Unmarshal([]byte(body), &gamemodeID)
 
-  log.Println(gamemode, body)
+  var gamemode Gamemode = GAMEMODE_MAP[gamemodeID]
 
   playerID := ws.Config().Protocol[0]
   for _, server := range servers {
@@ -40,11 +40,11 @@ func JoinMatch(body string, s *Server, ws *websocket.Conn) {
       if len(server.conns) % 2 == 1 {
 	direction = "down"
       }
-      var player Player = Player{ID: playerID, Team: direction}
-      games[server.id].Players = append(games[server.id].Players, player)
+      var player Player = Player{ID: playerID, Team: direction, Elixir: gamemode.InitialElixir}
+      games[server.id].Players[playerID] = player
       var action Action = Action{Name: "game_id", Body: fmt.Sprintf(`{"id": "%s", "direction": "%s"}`, server.id, direction)}
       response, _ := json.Marshal(action) 
-      ws.Write(response)
+      s.Whisper(ws, response)
       return
     }	
   } 
@@ -52,11 +52,11 @@ func JoinMatch(body string, s *Server, ws *websocket.Conn) {
   serverId := fmt.Sprintf("%d", len(servers))
   games[serverId] = MakeGame(serverId)
   games[serverId].Gamemode = gamemode
-  var player Player = Player{ID: playerID, Team: "up"}
-  games[serverId].Players = append(games[serverId].Players, player)
+  var player Player = Player{ID: playerID, Team: "up", Elixir: gamemode.InitialElixir}
+  games[serverId].Players[playerID] = player
   var action Action = Action{Name: "game_id", Body: fmt.Sprintf(`{"id": "%s", "direction": "up"}`, serverId)}
   response, _ := json.Marshal(action) 
-  ws.Write(response)
+  s.Whisper(ws, response)
 }
 
 func Serve() {

@@ -25,12 +25,30 @@ var CARD_MAP map[string]Troop = map[string]Troop{
     Splash: 2,
     MaxHP: 50,
     HP: 50,
+    Cost: 2,
+    Damage: 10,
+  }, 
+  "archer": {
+    Name: "archer",
+    AttackSpeed: 2000, MovementSpeed: 500, DeploySpeed: 1000, 
+    attackFunc: BasicRangedAttack, movementFunc: BasicMovement,
+    Vision: 5,
+    Radius: 5,
+    Splash: 2,
+    MaxHP: 1000,
+    HP: 1000,
+    Cost: 3,
     Damage: 10,
   }, 
   "hog_rider": {
     AttackSpeed: 300, MovementSpeed: 100, DeploySpeed: 1000, 
     attackFunc: BasicMeleeAttack, movementFunc: BasicMovement,
     Radius: 1,
+    Vision: 5,
+    MaxHP: 100,
+    HP: 100,
+    Cost: 5,
+    Damage: 50,
   }, 
 }
 
@@ -182,7 +200,7 @@ func (t *Troop) Pathfinding() Tile {
 func (t *Troop) NearestTower() {
   tower_key := "tower_down"
 
-  if (t.Team == games[t.gameId].Players[0].Team) {
+  if (t.Team == "up") {
     tower_key = "tower_up"
   }
 
